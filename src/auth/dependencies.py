@@ -1,11 +1,26 @@
-from fastapi import Request, status
+from typing import Any, List
+
+from fastapi import Depends, Request, status
 from fastapi.exceptions import HTTPException
 from fastapi.security import HTTPBearer
 from fastapi.security.http import HTTPAuthorizationCredentials
+from sqlmodel.ext.asyncio.session import AsyncSession
 
+from src.db.main import get_session
+from src.db.models import User
 from src.db.redis import token_in_blocklist
+from src.errors import (
+    AccessTokenRequired,
+    AccountNotVerified,
+    InsufficientPermission,
+    InvalidToken,
+    RefreshTokenRequired,
+)
 
+from .service import UserService
 from .utils import decode_token
+
+user_service = UserService()
 
 
 class TokenBearer(HTTPBearer):
@@ -25,13 +40,7 @@ class TokenBearer(HTTPBearer):
                 },
             )
         if await token_in_blocklist(token_data["jti"]):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "error": "This token is invalid or has been revoked",
-                    "resolutioin": "Please get new token",
-                },
-            )
+            raise InvalidToken()
 
         self.verify_token_data(token_data)
 
@@ -48,16 +57,31 @@ class TokenBearer(HTTPBearer):
 class AccessTokenBearer(TokenBearer):
     def verify_token_data(self, token_data: dict) -> None:
         if token_data and token_data["refresh"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Please provide an access token",
-            )
+            raise AccessTokenRequired()
 
 
 class RefreshTokenBearer(TokenBearer):
     def verify_token_data(self, token_data: dict) -> None:
         if token_data and not token_data["refresh"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Please provide an refresh token",
-            )
+            raise RefreshTokenRequired()
+
+
+async def get_current_user(
+    token_details: dict = Depends(AccessTokenBearer()),
+    session: AsyncSession = Depends(get_session),
+):
+    user_email = token_details["user"]["email"]
+    user = await user_service.get_user_by_email(user_email, session)
+    return user
+
+
+class RoleChecker:
+    def __init__(self, allowed_roles: List[str]) -> None:
+        self.allowed_roled = allowed_roles
+
+    def __call__(self, current_user: User = Depends(get_current_user)) -> Any:
+        if not current_user.is_verified:
+            raise AccountNotVerified()
+        if current_user.role in self.allowed_roled:
+            return True
+        raise InsufficientPermission()

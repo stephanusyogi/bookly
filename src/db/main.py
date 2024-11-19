@@ -11,12 +11,12 @@ from src.config import Config
 
 # engine = create_engine(url=Config.DATABASE_URL, echo=True)
 # engine = AsyncEngine(create_engine(url=Config.DATABASE_URL, echo=True))
-engine = create_async_engine(Config.DATABASE_URL, echo=True)
+engine = create_async_engine(Config.DATABASE_URL)
 
 
 async def init_db():
     async with engine.begin() as conn:
-        from src.books.models import Book
+        from src.db.models import Book
 
         await conn.run_sync(SQLModel.metadata.create_all)
 

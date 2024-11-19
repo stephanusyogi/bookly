@@ -1,7 +1,8 @@
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from .models import User
+from src.db.models import User
+
 from .schemas import UserCreateModel
 from .utils import generate_passwd_hash
 
@@ -22,7 +23,15 @@ class UserService:
 
         new_user = User(**user_data_dict)
         new_user.password_hash = generate_passwd_hash(user_data_dict["password"])
+        new_user.role = "user"
         session.add(new_user)
         await session.commit()
 
         return new_user
+
+    async def update_user(self, user: User, user_data: dict, session: AsyncSession):
+        for key, value in user_data.items():
+            setattr(user, key, value)
+
+        await session.commit()
+        return user
